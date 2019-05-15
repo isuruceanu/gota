@@ -623,7 +623,7 @@ type loadOptions struct {
 	// Define a func for trimming the header strings satisfying f(r) to be removed
 	trimHeader func(r rune) bool
 
-	// Define a func for trimming the header strings satisfying f(r) to be removed
+	// Define a func for trimming the raw data
 	customTrimer CustomTrimer
 }
 
