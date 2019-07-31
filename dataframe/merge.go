@@ -740,19 +740,19 @@ func prepareInnerJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 
 	// TODO: select table with min rows for hashing
 
-	var hashBuckets hashBucketsT
-	maxIndex := hashIndexT(len(hashBuckets) - 1)
+	var hashBucketsA hashBucketsT
+	maxIndex := hashIndexT(len(hashBucketsA) - 1)
 
 	for i := 0; i < a.nrows; i++ {
 		var keysA []series.Element
+
 		for k := range keys {
 			keysA = append(keysA, aCols[iKeysA[k]].Elem(i))
 		}
 
 		hashA := hashJoinCalculation(keysA, maxIndex)
 
-		newKv := hashBucketValueT{values: keysA, row: i}
-		hashBuckets[hashA] = append(hashBuckets[hashA], newKv)
+		hashBucketsA[hashA] = append(hashBucketsA[hashA], hashBucketValueT{keys: keysA, row: i})
 	}
 
 	// 2. probe hash
@@ -763,34 +763,36 @@ func prepareInnerJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 		}
 
 		hashB := hashJoinCalculation(keysB, maxIndex)
-		buckets := hashBuckets[hashB]
 
-		if len(buckets) == 0 {
+		bucketA := hashBucketsA[hashB]
+
+		if bucketA.empty() {
 			continue // no keys matches..
 		}
 
 		// check for collision..
-		for _, aKeyValues := range buckets {
-			areEquals := true
-			for keyIdx, aElem := range aKeyValues.values {
+		for _, bucketValueA := range bucketA {
+			keysEquals := true
+
+			for keyIdx, aElem := range bucketValueA.keys {
 				bElem := bCols[iKeysB[keyIdx]].Elem(i)
 
 				if !aElem.Eq(bElem) {
-					areEquals = false
+					keysEquals = false
 					break
 				}
 			}
 
-			if areEquals {
+			if keysEquals {
 				ii := 0
 				for _, k := range iKeysA {
-					elem := aCols[k].Elem(aKeyValues.row)
+					elem := aCols[k].Elem(bucketValueA.row)
 					newCols[ii].Append(elem)
 					ii++
 				}
 
 				for _, k := range iNotKeysA {
-					elem := aCols[k].Elem(aKeyValues.row)
+					elem := aCols[k].Elem(bucketValueA.row)
 					newCols[ii].Append(elem)
 					ii++
 				}
@@ -801,7 +803,7 @@ func prepareInnerJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 					ii++
 				}
 
-				continue
+				continue // Break ?
 			}
 
 		}
@@ -823,7 +825,8 @@ func prepareOuterJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 
 	newCols := joinInput.newCols
 
-	{
+	{ // scope for buckets A -- find inner join AND NIL b
+
 		// 1. build hash for A table
 		var hashBucketsA hashBucketsT
 		maxIndex := hashIndexT(len(hashBucketsA) - 1)
@@ -836,8 +839,7 @@ func prepareOuterJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 
 			hashA := hashJoinCalculation(keysA, maxIndex)
 
-			newKv := hashBucketValueT{values: keysA, row: i}
-			hashBucketsA[hashA] = append(hashBucketsA[hashA], newKv)
+			hashBucketsA[hashA] = append(hashBucketsA[hashA], hashBucketValueT{keys: keysA, row: i})
 		}
 
 		// 2. probe hash for B table
@@ -848,9 +850,9 @@ func prepareOuterJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 			}
 
 			hashB := hashJoinCalculation(keysB, maxIndex)
-			buckets := hashBucketsA[hashB]
+			bucketsA := hashBucketsA[hashB]
 
-			if len(buckets) == 0 {
+			if bucketsA.empty() {
 				// 'b' not found in 'a'..
 				ii := 0
 				for _, k := range iKeysB {
@@ -871,13 +873,13 @@ func prepareOuterJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 				continue
 			}
 
-			found := false
+			foundB := false
 
 			// check for collision..
-			for _, aKeyValues := range buckets {
+			for _, bucketValueA := range bucketsA {
 				areEquals := true
 
-				for keyIdx, aElem := range aKeyValues.values {
+				for keyIdx, aElem := range bucketValueA.keys {
 					bElem := bCols[iKeysB[keyIdx]].Elem(i)
 
 					if !aElem.Eq(bElem) {
@@ -887,17 +889,17 @@ func prepareOuterJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 				}
 
 				if areEquals {
-					found = true
+					foundB = true
 
 					ii := 0
 					for _, k := range iKeysA {
-						elem := aCols[k].Elem(aKeyValues.row)
+						elem := aCols[k].Elem(bucketValueA.row)
 						newCols[ii].Append(elem)
 						ii++
 					}
 
 					for _, k := range iNotKeysA {
-						elem := aCols[k].Elem(aKeyValues.row)
+						elem := aCols[k].Elem(bucketValueA.row)
 						newCols[ii].Append(elem)
 						ii++
 					}
@@ -912,7 +914,7 @@ func prepareOuterJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 				}
 			} // for check collision..
 
-			if !found {
+			if !foundB {
 				// 'b' not found in 'a'..
 				ii := 0
 				for _, k := range iKeysB {
@@ -935,7 +937,7 @@ func prepareOuterJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 
 	} // scope for hash table a/ probe table b
 
-	{
+	{ // scope for buckets B -- find NIL a
 		var hashBucketsB hashBucketsT
 
 		// 1. build hash for B table
@@ -949,8 +951,7 @@ func prepareOuterJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 
 			hashB := hashJoinCalculation(keysB, maxIndex)
 
-			newKv := hashBucketValueT{values: keysB, row: i}
-			hashBucketsB[hashB] = append(hashBucketsB[hashB], newKv)
+			hashBucketsB[hashB] = append(hashBucketsB[hashB], hashBucketValueT{keys: keysB, row: i})
 		}
 
 		// 2. probe hash for A table
@@ -961,9 +962,10 @@ func prepareOuterJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 			}
 
 			hashA := hashJoinCalculation(keysA, maxIndex)
+
 			buckets := hashBucketsB[hashA]
 
-			if len(buckets) == 0 {
+			if buckets.empty() {
 				// 'a' not found in 'b'..
 				ii := 0
 				for _, k := range iKeysA {
@@ -984,13 +986,13 @@ func prepareOuterJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 				continue
 			}
 
-			found := false
+			foundA := false
 
 			// check for collision..
-			for _, bKeyValues := range buckets {
+			for _, bucketValueB := range buckets {
 				areEquals := true
 
-				for keyIdx, bElem := range bKeyValues.values {
+				for keyIdx, bElem := range bucketValueB.keys {
 					aElem := aCols[iKeysA[keyIdx]].Elem(i)
 
 					if !aElem.Eq(bElem) {
@@ -1000,12 +1002,12 @@ func prepareOuterJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 				}
 
 				if areEquals {
-					found = true
+					foundA = true
 					break
 				}
 			}
 
-			if !found {
+			if !foundA {
 				// 'a' not found in 'b'..
 				ii := 0
 				for _, k := range iKeysA {
@@ -1038,11 +1040,15 @@ func prepareOuterJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 //
 
 type hashBucketValueT struct {
-	values []series.Element // source row keys
-	row    int              // source row number
+	keys []series.Element // source row keys
+	row  int              // source row number
 }
 
 type hashBucketT []hashBucketValueT
+
+func (hb hashBucketT) empty() bool {
+	return len(hb) == 0
+}
 
 type hashBucketsT [1024 * 64]hashBucketT // TODO: dynamic length
 
