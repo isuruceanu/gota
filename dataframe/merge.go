@@ -664,7 +664,6 @@ func (df DataFrame) innerJoinHashWithCombine(b DataFrame, compareFn combineFuncT
 	}
 
 	//
-	//*
 	joinInput := prepareJoinInput{
 		a:         &df,
 		b:         &b,
@@ -677,103 +676,6 @@ func (df DataFrame) innerJoinHashWithCombine(b DataFrame, compareFn combineFuncT
 	}
 	combineColumnsInput := prepareInnerJoinHashForCombineColumns(joinInput)
 	newCols = combineColumns(iCombinedCols, combineColumnsInput.newCols, combineHeaderBuilder)
-	// */
-
-	/*
-		// TODO: select table with min rows for hashing
-		type keysT struct {
-			values []series.Element
-			row    int
-		}
-		type keyValuesT []keysT
-		type hashHolderT [1024 * 64]keyValuesT // TODO: dynamic length
-		type hashIndexT int
-
-		elementHash := func(elements []series.Element, max hashIndexT) hashIndexT {
-			var hash uint32
-
-			for _, el := range elements {
-				s := el.String()
-
-				h := fnv.New32a()
-				h.Write([]byte(s))
-				hash += h.Sum32()
-			}
-
-			return hashIndexT(hash % uint32(max))
-		}
-
-		// 1. build hash
-		var hashBuckets hashHolderT
-		var maxIndex hashIndexT = hashIndexT(len(hashBuckets) - 1)
-
-		for i := 0; i < df.nrows; i++ {
-			var keysA []series.Element
-			for k := range keys {
-				keysA = append(keysA, aCols[iKeysA[k]].Elem(i))
-			}
-
-			hashA := elementHash(keysA, maxIndex)
-
-			newKv := keysT{values: keysA, row: i}
-			hashBuckets[hashA] = append(hashBuckets[hashA], newKv)
-		}
-
-		// 2. probe hash
-		for i := 0; i < b.nrows; i++ {
-			var keysB []series.Element
-			for k := range keys {
-				keysB = append(keysB, bCols[iKeysB[k]].Elem(i))
-			}
-
-			hashB := elementHash(keysB, maxIndex)
-			buckets := hashBuckets[hashB]
-
-			if len(buckets) == 0 {
-				continue // no key matches
-			}
-
-			// check for collision..
-			for _, aKeyValues := range buckets {
-				areEquals := true
-
-				for keyIdx, aElem := range aKeyValues.values {
-					bElem := bCols[iKeysB[keyIdx]].Elem(i)
-
-					if !aElem.Eq(bElem) {
-						areEquals = false
-						break
-					}
-				}
-
-				if areEquals {
-					ii := 0
-					for _, k := range iKeysA {
-						elem := aCols[k].Elem(aKeyValues.row)
-						newCols[ii].Append(elem)
-						ii++
-					}
-
-					for _, k := range iNotKeysA {
-						elem := aCols[k].Elem(aKeyValues.row)
-						newCols[ii].Append(elem)
-						ii++
-					}
-
-					for _, k := range iNotKeysB {
-						elem := bCols[k].Elem(i)
-						newCols[ii].Append(elem)
-						ii++
-					}
-
-					continue
-				}
-
-			}
-		}
-
-		newCols = combineColumns(iCombinedCols, newCols, combineHeaderBuilder)
-		// */
 
 	return New(newCols...)
 }
