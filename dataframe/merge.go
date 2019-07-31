@@ -2,6 +2,7 @@ package dataframe
 
 import (
 	"fmt"
+	"hash/fnv"
 	"strings"
 
 	"github.com/isuruceanu/gota/series"
@@ -607,3 +608,305 @@ var (
 		return val == t.rBIdx
 	}
 )
+
+// InnerJoin returns a DataFrame containing the inner join of two DataFrames.
+func (df DataFrame) innerJoinHashWithCombine(b DataFrame, compareFn combineFuncType, combineHeaderBuilder combineHeaderBuilderFuncType, keys ...string) DataFrame {
+
+	iKeysA, iKeysB, errorArr := checkDataframesForJoins(df, b, keys...)
+	if len(errorArr) != 0 {
+		return DataFrame{Err: fmt.Errorf("%v", strings.Join(errorArr, "\n"))}
+	}
+
+	aCols := df.columns
+	bCols := b.columns
+
+	// Initialize newCols
+	var newCols []series.Series
+	for _, i := range iKeysA {
+		newCols = append(newCols, aCols[i].Empty())
+	}
+
+	var iCombinedCols tupleArr
+
+	if compareFn != nil {
+		for i := 0; i < df.ncols; i++ {
+			if !inIntSlice(i, iKeysA) {
+				for j := 0; j < b.ncols; j++ {
+					if !inIntSlice(j, iKeysB) {
+						if compareFn(aCols[i], bCols[j]) {
+							iCombinedCols = append(iCombinedCols, tuple{i, j, -1, -1})
+						}
+					}
+				}
+			}
+		}
+	}
+
+	var iNotKeysA []int
+	for i := 0; i < df.ncols; i++ {
+		if !inIntSlice(i, iKeysA) {
+			iNotKeysA = append(iNotKeysA, i)
+			newCols = append(newCols, aCols[i].Empty())
+			if cIdx, cf := iCombinedCols.findTuple(i, findInA); cf {
+				iCombinedCols[cIdx].rAIdx = len(newCols) - 1
+			}
+		}
+	}
+	var iNotKeysB []int
+	for i := 0; i < b.ncols; i++ {
+		if !inIntSlice(i, iKeysB) {
+			iNotKeysB = append(iNotKeysB, i)
+			newCols = append(newCols, bCols[i].Empty())
+			if cIdx, cf := iCombinedCols.findTuple(i, findInB); cf {
+				iCombinedCols[cIdx].rBIdx = len(newCols) - 1
+			}
+		}
+	}
+
+	//
+	//*
+	joinInput := prepareJoinInput{
+		a:         &df,
+		b:         &b,
+		keys:      keys,
+		iKeysA:    iKeysA,
+		iKeysB:    iKeysB,
+		iNotKeysA: iNotKeysA,
+		iNotKeysB: iNotKeysB,
+		newCols:   newCols,
+	}
+	combineColumnsInput := prepareInnerJoinHashForCombineColumns(joinInput)
+	newCols = combineColumns(iCombinedCols, combineColumnsInput.newCols, combineHeaderBuilder)
+	// */
+
+	/*
+		// TODO: select table with min rows for hashing
+		type keysT struct {
+			values []series.Element
+			row    int
+		}
+		type keyValuesT []keysT
+		type hashHolderT [1024 * 64]keyValuesT // TODO: dynamic length
+		type hashIndexT int
+
+		elementHash := func(elements []series.Element, max hashIndexT) hashIndexT {
+			var hash uint32
+
+			for _, el := range elements {
+				s := el.String()
+
+				h := fnv.New32a()
+				h.Write([]byte(s))
+				hash += h.Sum32()
+			}
+
+			return hashIndexT(hash % uint32(max))
+		}
+
+		// 1. build hash
+		var hashBuckets hashHolderT
+		var maxIndex hashIndexT = hashIndexT(len(hashBuckets) - 1)
+
+		for i := 0; i < df.nrows; i++ {
+			var keysA []series.Element
+			for k := range keys {
+				keysA = append(keysA, aCols[iKeysA[k]].Elem(i))
+			}
+
+			hashA := elementHash(keysA, maxIndex)
+
+			newKv := keysT{values: keysA, row: i}
+			hashBuckets[hashA] = append(hashBuckets[hashA], newKv)
+		}
+
+		// 2. probe hash
+		for i := 0; i < b.nrows; i++ {
+			var keysB []series.Element
+			for k := range keys {
+				keysB = append(keysB, bCols[iKeysB[k]].Elem(i))
+			}
+
+			hashB := elementHash(keysB, maxIndex)
+			buckets := hashBuckets[hashB]
+
+			if len(buckets) == 0 {
+				continue // no key matches
+			}
+
+			// check for collision..
+			for _, aKeyValues := range buckets {
+				areEquals := true
+
+				for keyIdx, aElem := range aKeyValues.values {
+					bElem := bCols[iKeysB[keyIdx]].Elem(i)
+
+					if !aElem.Eq(bElem) {
+						areEquals = false
+						break
+					}
+				}
+
+				if areEquals {
+					ii := 0
+					for _, k := range iKeysA {
+						elem := aCols[k].Elem(aKeyValues.row)
+						newCols[ii].Append(elem)
+						ii++
+					}
+
+					for _, k := range iNotKeysA {
+						elem := aCols[k].Elem(aKeyValues.row)
+						newCols[ii].Append(elem)
+						ii++
+					}
+
+					for _, k := range iNotKeysB {
+						elem := bCols[k].Elem(i)
+						newCols[ii].Append(elem)
+						ii++
+					}
+
+					continue
+				}
+
+			}
+		}
+
+		newCols = combineColumns(iCombinedCols, newCols, combineHeaderBuilder)
+		// */
+
+	return New(newCols...)
+}
+
+//
+// input for combineColumns() function
+//
+type combineColumnsInput struct {
+	newCols []series.Series
+}
+
+//
+// input for Join operations
+//
+type prepareJoinInput struct {
+	a         *DataFrame // first input dataframe
+	b         *DataFrame // second input dataframe
+	keys      []string   // keys for join
+	iKeysA    []int      // indexes from first dataframe for key columns
+	iKeysB    []int      // indexes from second dataframe for key columns
+	iNotKeysA []int      // indexes from first dataframe for non-key columns
+	iNotKeysB []int      // indexes from second dataframe for non-key columns
+	newCols   []series.Series
+}
+
+func prepareInnerJoinHashForCombineColumns(joinInput prepareJoinInput) combineColumnsInput {
+	// prpare input..
+	a, b := joinInput.a, joinInput.b
+	keys := joinInput.keys
+	iKeysA, iKeysB, iNotKeysA, iNotKeysB := joinInput.iKeysA, joinInput.iKeysB, joinInput.iNotKeysA, joinInput.iNotKeysB
+
+	aCols := a.columns
+	bCols := b.columns
+
+	newCols := joinInput.newCols
+
+	//
+	// types for join
+	//
+
+	// TODO: select table with min rows for hashing
+	type keysT struct {
+		values []series.Element
+		row    int
+	}
+	type keyValuesT []keysT
+	type hashHolderT [1024 * 64]keyValuesT // TODO: dynamic length
+	type hashIndexT int
+
+	hashCalculation := func(elements []series.Element, max hashIndexT) hashIndexT {
+		var hash uint32
+
+		for _, el := range elements {
+			s := el.String()
+
+			h := fnv.New32a()
+			h.Write([]byte(s))
+			hash += h.Sum32()
+		}
+
+		return hashIndexT(hash % uint32(max))
+	}
+
+	// 1. build hash
+	var hashBuckets hashHolderT
+	var maxIndex hashIndexT = hashIndexT(len(hashBuckets) - 1)
+
+	for i := 0; i < a.nrows; i++ {
+		var keysA []series.Element
+		for k := range keys {
+			keysA = append(keysA, aCols[iKeysA[k]].Elem(i))
+		}
+
+		hashA := hashCalculation(keysA, maxIndex)
+
+		newKv := keysT{values: keysA, row: i}
+		hashBuckets[hashA] = append(hashBuckets[hashA], newKv)
+	}
+
+	// 2. probe hash
+	for i := 0; i < b.nrows; i++ {
+		var keysB []series.Element
+		for k := range keys {
+			keysB = append(keysB, bCols[iKeysB[k]].Elem(i))
+		}
+
+		hashB := hashCalculation(keysB, maxIndex)
+		buckets := hashBuckets[hashB]
+
+		if len(buckets) == 0 {
+			continue // no key matches
+		}
+
+		// check for collision..
+		for _, aKeyValues := range buckets {
+			areEquals := true
+
+			for keyIdx, aElem := range aKeyValues.values {
+				bElem := bCols[iKeysB[keyIdx]].Elem(i)
+
+				if !aElem.Eq(bElem) {
+					areEquals = false
+					break
+				}
+			}
+
+			if areEquals {
+				ii := 0
+				for _, k := range iKeysA {
+					elem := aCols[k].Elem(aKeyValues.row)
+					newCols[ii].Append(elem)
+					ii++
+				}
+
+				for _, k := range iNotKeysA {
+					elem := aCols[k].Elem(aKeyValues.row)
+					newCols[ii].Append(elem)
+					ii++
+				}
+
+				for _, k := range iNotKeysB {
+					elem := bCols[k].Elem(i)
+					newCols[ii].Append(elem)
+					ii++
+				}
+
+				continue
+			}
+
+		}
+	}
+
+	return combineColumnsInput{
+		newCols: newCols,
+	}
+}

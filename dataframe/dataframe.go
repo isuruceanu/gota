@@ -666,13 +666,12 @@ func TrimHeaderString(fn func(r rune) bool) LoadOption {
 	}
 }
 
-// OnCustomParser set callback for parsing 
+// OnCustomParser set callback for parsing
 func OnCustomTrimer(fn CustomTrimer) LoadOption {
 	return func(c *loadOptions) {
 		c.customTrimer = fn
 	}
 }
-
 
 // NaNValues set which values are to be parsed as NaN
 func NaNValues(nanValues []string) LoadOption {
@@ -970,6 +969,11 @@ func (df DataFrame) RightJoin(b DataFrame, keys ...string) DataFrame {
 // OuterJoin returns a DataFrame containing the outer join of two DataFrames.
 func (df DataFrame) OuterJoin(b DataFrame, keys ...string) DataFrame {
 	return df.outerJoinWithCombine(b, nil, nil, keys...)
+}
+
+// InnerJoinHash returns a DataFrame containing the inner join of two DataFrames.
+func (df DataFrame) InnerJoinHash(b DataFrame, keys ...string) DataFrame {
+	return df.innerJoinHashWithCombine(b, nil, nil, keys...)
 }
 
 // CrossJoin returns a DataFrame containing the cross join of two DataFrames.

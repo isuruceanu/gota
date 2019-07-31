@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 	"unicode"
 
 	"github.com/gonum/matrix/mat64"
@@ -2110,4 +2111,138 @@ func TestLoadMatrix(t *testing.T) {
 			t.Errorf("Different values:\nA:%v\nB:%v", test.expDf.Records(), b.Records())
 		}
 	}
+}
+
+func TestDataFrame_InnerJoinHash(t *testing.T) {
+	a := LoadRecords(
+		[][]string{
+			[]string{"A", "B", "C", "D"},
+			[]string{"1", "a", "5.1", "true"},
+			[]string{"2", "b", "6.0", "true"},
+			[]string{"3", "c", "6.0", "false"},
+			[]string{"1", "d", "7.1", "false"},
+		},
+	)
+	b := LoadRecords(
+		[][]string{
+			[]string{"A", "F", "D"},
+			[]string{"1", "1", "true"},
+			[]string{"4", "2", "false"},
+			[]string{"2", "8", "false"},
+			[]string{"5", "9", "false"},
+		},
+	)
+	table := []struct {
+		keys  []string
+		expDf DataFrame
+	}{
+		{
+			[]string{"A", "D"},
+			LoadRecords(
+				[][]string{
+					[]string{"A", "D", "B", "C", "F"},
+					[]string{"1", "true", "a", "5.1", "1"},
+				},
+			),
+		},
+		{
+			[]string{"A"},
+			LoadRecords(
+				[][]string{
+					[]string{"A", "B", "C", "D_0", "F", "D_1"},
+					[]string{"1", "a", "5.1", "true", "1", "true"},
+					[]string{"1", "d", "7.1", "false", "1", "true"},
+					[]string{"2", "b", "6.0", "true", "8", "false"},
+				},
+			),
+		},
+		{
+			[]string{"D"},
+			LoadRecords(
+				[][]string{
+					[]string{"D", "A_0", "B", "C", "A_1", "F"},
+					[]string{"true", "1", "a", "5.1", "1", "1"},
+					[]string{"true", "2", "b", "6.0", "1", "1"},
+					[]string{"false", "3", "c", "6.0", "4", "2"},
+					[]string{"false", "1", "d", "7.1", "4", "2"},
+					[]string{"false", "3", "c", "6.0", "2", "8"},
+					[]string{"false", "1", "d", "7.1", "2", "8"},
+					[]string{"false", "3", "c", "6.0", "5", "9"},
+					[]string{"false", "1", "d", "7.1", "5", "9"},
+				},
+			),
+		},
+	}
+	for testnum, test := range table {
+		c := a.InnerJoinHash(b, test.keys...)
+
+		if err := c.Err; err != nil {
+			t.Errorf("Test:%v\nError:%v", testnum, err)
+		}
+		// Check that the types are the same between both DataFrames
+		if !reflect.DeepEqual(test.expDf.Types(), c.Types()) {
+			t.Errorf("Different types:\nA:%v\nB:%v", test.expDf.Types(), c.Types())
+		}
+		// Check that the colnames are the same between both DataFrames
+		if !reflect.DeepEqual(test.expDf.Names(), c.Names()) {
+			t.Errorf("Different colnames:\nA:%v\nB:%v", test.expDf.Names(), c.Names())
+		}
+		// Check that the values are the same between both DataFrames
+		if !reflect.DeepEqual(test.expDf.Records(), c.Records()) {
+			t.Errorf("Different values:\nA:%v\nB:%v", test.expDf.Records(), c.Records())
+		}
+	}
+}
+
+//
+// cmd-line: go test -timeout 1200s github.com/isuruceanu/gota/dataframe -run ^TestDataFrame_InnerJoinHash_Performance$ -test.v
+//
+func TestDataFrame_InnerJoinHash_Performance(t *testing.T) {
+	df1 := readCvsFile("r35k-c73.csv")
+	df2 := readCvsFile("r30k-c4.csv")
+
+	if df1.Err != nil {
+		t.Errorf("df1 not loaded!")
+		return
+	}
+
+	if df2.Err != nil {
+		t.Errorf("df2 not loaded!")
+		return
+	}
+
+	t.Logf("\nInput Df1, Rows: %v, Cols: %v ..\n", df1.Nrow(), df1.Ncol())
+	t.Logf("\nInput Df2, Rows: %v, Cols: %v ..\n", df2.Nrow(), df2.Ncol())
+
+	const keyField = "ID"
+
+	startJoinHash := time.Now()
+	hashResult := df1.InnerJoinHash(df2, keyField)
+	elapsedJoinHash := time.Since(startJoinHash)
+
+	startJoin := time.Now()
+	joinResult := df1.InnerJoin(df2, keyField)
+	elapsedJoin := time.Since(startJoin)
+
+	if hashResult.Err != nil {
+		t.Errorf("InnerJoinHash failed: %v", hashResult.Err)
+		return
+	}
+
+	if joinResult.Err != nil {
+		t.Errorf("InnerJoin failed: %v", joinResult.Err)
+		return
+	}
+
+	if hashResult.Nrow() != joinResult.Nrow() {
+		t.Errorf("Different rows count! InnerJoinHash: %v, InnerJoin: %v", hashResult.Nrow(), joinResult.Nrow())
+		return
+	}
+
+	if hashResult.Ncol() != joinResult.Ncol() {
+		t.Errorf("Different cols count! InnerJoinHash: %v, InnerJoin: %v", hashResult.Ncol(), joinResult.Ncol())
+		return
+	}
+
+	t.Logf("\nelapsedJoinHash: %v, elapsedJoin: %v\n", elapsedJoinHash, elapsedJoin)
 }
