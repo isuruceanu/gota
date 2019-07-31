@@ -712,36 +712,12 @@ func prepareInnerJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 
 	newCols := joinInput.newCols
 
-	//
-	// types for join
-	//
+	// 1. build hash
 
 	// TODO: select table with min rows for hashing
-	type keysT struct {
-		values []series.Element
-		row    int
-	}
-	type keyValuesT []keysT
-	type hashHolderT [1024 * 64]keyValuesT // TODO: dynamic length
-	type hashIndexT int
 
-	hashCalculation := func(elements []series.Element, max hashIndexT) hashIndexT {
-		var hash uint32
-
-		for _, el := range elements {
-			s := el.String()
-
-			h := fnv.New32a()
-			h.Write([]byte(s))
-			hash += h.Sum32()
-		}
-
-		return hashIndexT(hash % uint32(max))
-	}
-
-	// 1. build hash
-	var hashBuckets hashHolderT
-	var maxIndex hashIndexT = hashIndexT(len(hashBuckets) - 1)
+	var hashBuckets hashBucketsT
+	maxIndex := hashIndexT(len(hashBuckets) - 1)
 
 	for i := 0; i < a.nrows; i++ {
 		var keysA []series.Element
@@ -749,9 +725,9 @@ func prepareInnerJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 			keysA = append(keysA, aCols[iKeysA[k]].Elem(i))
 		}
 
-		hashA := hashCalculation(keysA, maxIndex)
+		hashA := hashJoinCalculation(keysA, maxIndex)
 
-		newKv := keysT{values: keysA, row: i}
+		newKv := hashBucketValueT{values: keysA, row: i}
 		hashBuckets[hashA] = append(hashBuckets[hashA], newKv)
 	}
 
@@ -762,11 +738,11 @@ func prepareInnerJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 			keysB = append(keysB, bCols[iKeysB[k]].Elem(i))
 		}
 
-		hashB := hashCalculation(keysB, maxIndex)
+		hashB := hashJoinCalculation(keysB, maxIndex)
 		buckets := hashBuckets[hashB]
 
 		if len(buckets) == 0 {
-			continue // no key matches
+			continue // no keys matches..
 		}
 
 		// check for collision..
@@ -811,4 +787,34 @@ func prepareInnerJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 	return combineColumnsInput{
 		newCols: newCols,
 	}
+}
+
+//
+// Helper types/func for join hashing
+//
+
+// hash bucket
+type hashBucketValueT struct {
+	values []series.Element // source row keys
+	row    int              // source row number
+}
+
+type hashBucketT []hashBucketValueT
+
+type hashBucketsT [1024 * 64]hashBucketT // TODO: dynamic length
+
+type hashIndexT int
+
+func hashJoinCalculation(elements []series.Element, max hashIndexT) hashIndexT {
+	var hash uint32
+
+	for _, el := range elements {
+		s := el.String()
+
+		h := fnv.New32a()
+		h.Write([]byte(s))
+		hash += h.Sum32()
+	}
+
+	return hashIndexT(hash % uint32(max))
 }

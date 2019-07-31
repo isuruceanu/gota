@@ -2197,6 +2197,8 @@ func TestDataFrame_InnerJoinHash(t *testing.T) {
 //
 // cmd-line: go test -timeout 1200s github.com/isuruceanu/gota/dataframe -run ^TestDataFrame_InnerJoinHash_Performance$ -test.v
 //
+// Rename this test for using - remove starting underscore (was renamed only because long-running).
+//
 func _TestDataFrame_InnerJoinHash_Performance(t *testing.T) {
 	df1 := readCvsFile("r35k-c73.csv")
 	df2 := readCvsFile("r30k-c4.csv")
