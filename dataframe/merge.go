@@ -611,13 +611,59 @@ var (
 
 // InnerJoin returns a DataFrame containing the inner join of two DataFrames.
 func (df DataFrame) innerJoinHashWithCombine(b DataFrame, compareFn combineFuncType, combineHeaderBuilder combineHeaderBuilderFuncType, keys ...string) DataFrame {
-
-	iKeysA, iKeysB, errorArr := checkDataframesForJoins(df, b, keys...)
-	if len(errorArr) != 0 {
-		return DataFrame{Err: fmt.Errorf("%v", strings.Join(errorArr, "\n"))}
+	joinInput, err := prepareJoin(df, b, compareFn, keys...)
+	if err != nil {
+		return DataFrame{Err: err}
 	}
 
-	aCols := df.columns
+	combineColumnsInput := prepareInnerJoinHashForCombineColumns(joinInput)
+	newCols := combineColumns(joinInput.iCombinedCols, combineColumnsInput.newCols, combineHeaderBuilder)
+
+	return New(newCols...)
+}
+
+// InnerJoin returns a DataFrame containing the inner join of two DataFrames.
+func (df DataFrame) outerJoinHashWithCombine(b DataFrame, compareFn combineFuncType, combineHeaderBuilder combineHeaderBuilderFuncType, keys ...string) DataFrame {
+	joinInput, err := prepareJoin(df, b, compareFn, keys...)
+	if err != nil {
+		return DataFrame{Err: err}
+	}
+
+	combineColumnsInput := prepareOuterJoinHashForCombineColumns(joinInput)
+	newCols := combineColumns(joinInput.iCombinedCols, combineColumnsInput.newCols, combineHeaderBuilder)
+
+	return New(newCols...)
+}
+
+//
+// input for combineColumns() function
+//
+type combineColumnsInput struct {
+	newCols []series.Series
+}
+
+//
+// input for Join operations
+//
+type prepareJoinInput struct {
+	a             *DataFrame // first input dataframe
+	b             *DataFrame // second input dataframe
+	keys          []string   // keys for join
+	iKeysA        []int      // indexes from first dataframe for key columns
+	iKeysB        []int      // indexes from second dataframe for key columns
+	iNotKeysA     []int      // indexes from first dataframe for non-key columns
+	iNotKeysB     []int      // indexes from second dataframe for non-key columns
+	iCombinedCols tupleArr
+	newCols       []series.Series
+}
+
+func prepareJoin(a, b DataFrame, compareFn combineFuncType, keys ...string) (prepareJoinInput, error) {
+	iKeysA, iKeysB, errorArr := checkDataframesForJoins(a, b, keys...)
+	if len(errorArr) != 0 {
+		return prepareJoinInput{}, fmt.Errorf("%v", strings.Join(errorArr, "\n"))
+	}
+
+	aCols := a.columns
 	bCols := b.columns
 
 	// Initialize newCols
@@ -629,7 +675,7 @@ func (df DataFrame) innerJoinHashWithCombine(b DataFrame, compareFn combineFuncT
 	var iCombinedCols tupleArr
 
 	if compareFn != nil {
-		for i := 0; i < df.ncols; i++ {
+		for i := 0; i < a.ncols; i++ {
 			if !inIntSlice(i, iKeysA) {
 				for j := 0; j < b.ncols; j++ {
 					if !inIntSlice(j, iKeysB) {
@@ -643,7 +689,7 @@ func (df DataFrame) innerJoinHashWithCombine(b DataFrame, compareFn combineFuncT
 	}
 
 	var iNotKeysA []int
-	for i := 0; i < df.ncols; i++ {
+	for i := 0; i < a.ncols; i++ {
 		if !inIntSlice(i, iKeysA) {
 			iNotKeysA = append(iNotKeysA, i)
 			newCols = append(newCols, aCols[i].Empty())
@@ -665,40 +711,18 @@ func (df DataFrame) innerJoinHashWithCombine(b DataFrame, compareFn combineFuncT
 
 	//
 	joinInput := prepareJoinInput{
-		a:         &df,
-		b:         &b,
-		keys:      keys,
-		iKeysA:    iKeysA,
-		iKeysB:    iKeysB,
-		iNotKeysA: iNotKeysA,
-		iNotKeysB: iNotKeysB,
-		newCols:   newCols,
+		a:             &a,
+		b:             &b,
+		keys:          keys,
+		iKeysA:        iKeysA,
+		iKeysB:        iKeysB,
+		iNotKeysA:     iNotKeysA,
+		iNotKeysB:     iNotKeysB,
+		iCombinedCols: iCombinedCols,
+		newCols:       newCols,
 	}
-	combineColumnsInput := prepareInnerJoinHashForCombineColumns(joinInput)
-	newCols = combineColumns(iCombinedCols, combineColumnsInput.newCols, combineHeaderBuilder)
 
-	return New(newCols...)
-}
-
-//
-// input for combineColumns() function
-//
-type combineColumnsInput struct {
-	newCols []series.Series
-}
-
-//
-// input for Join operations
-//
-type prepareJoinInput struct {
-	a         *DataFrame // first input dataframe
-	b         *DataFrame // second input dataframe
-	keys      []string   // keys for join
-	iKeysA    []int      // indexes from first dataframe for key columns
-	iKeysB    []int      // indexes from second dataframe for key columns
-	iNotKeysA []int      // indexes from first dataframe for non-key columns
-	iNotKeysB []int      // indexes from second dataframe for non-key columns
-	newCols   []series.Series
+	return joinInput, nil
 }
 
 func prepareInnerJoinHashForCombineColumns(joinInput prepareJoinInput) combineColumnsInput {
@@ -748,7 +772,6 @@ func prepareInnerJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 		// check for collision..
 		for _, aKeyValues := range buckets {
 			areEquals := true
-
 			for keyIdx, aElem := range aKeyValues.values {
 				bElem := bCols[iKeysB[keyIdx]].Elem(i)
 
@@ -789,11 +812,233 @@ func prepareInnerJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 	}
 }
 
+func prepareOuterJoinHashForCombineColumns(joinInput prepareJoinInput) combineColumnsInput {
+	// prpare input..
+	a, b := joinInput.a, joinInput.b
+	keys := joinInput.keys
+	iKeysA, iKeysB, iNotKeysA, iNotKeysB := joinInput.iKeysA, joinInput.iKeysB, joinInput.iNotKeysA, joinInput.iNotKeysB
+
+	aCols := a.columns
+	bCols := b.columns
+
+	newCols := joinInput.newCols
+
+	{
+		// 1. build hash for A table
+		var hashBucketsA hashBucketsT
+		maxIndex := hashIndexT(len(hashBucketsA) - 1)
+
+		for i := 0; i < a.nrows; i++ {
+			var keysA []series.Element
+			for k := range keys {
+				keysA = append(keysA, aCols[iKeysA[k]].Elem(i))
+			}
+
+			hashA := hashJoinCalculation(keysA, maxIndex)
+
+			newKv := hashBucketValueT{values: keysA, row: i}
+			hashBucketsA[hashA] = append(hashBucketsA[hashA], newKv)
+		}
+
+		// 2. probe hash for B table
+		for i := 0; i < b.nrows; i++ {
+			var keysB []series.Element
+			for k := range keys {
+				keysB = append(keysB, bCols[iKeysB[k]].Elem(i))
+			}
+
+			hashB := hashJoinCalculation(keysB, maxIndex)
+			buckets := hashBucketsA[hashB]
+
+			if len(buckets) == 0 {
+				// 'b' not found in 'a'..
+				ii := 0
+				for _, k := range iKeysB {
+					elem := bCols[k].Elem(i)
+					newCols[ii].Append(elem)
+					ii++
+				}
+				for _ = range iNotKeysA {
+					newCols[ii].Append(nil)
+					ii++
+				}
+				for _, k := range iNotKeysB {
+					elem := bCols[k].Elem(i)
+					newCols[ii].Append(elem)
+					ii++
+				}
+
+				continue
+			}
+
+			found := false
+
+			// check for collision..
+			for _, aKeyValues := range buckets {
+				areEquals := true
+
+				for keyIdx, aElem := range aKeyValues.values {
+					bElem := bCols[iKeysB[keyIdx]].Elem(i)
+
+					if !aElem.Eq(bElem) {
+						areEquals = false
+						break
+					}
+				}
+
+				if areEquals {
+					found = true
+
+					ii := 0
+					for _, k := range iKeysA {
+						elem := aCols[k].Elem(aKeyValues.row)
+						newCols[ii].Append(elem)
+						ii++
+					}
+
+					for _, k := range iNotKeysA {
+						elem := aCols[k].Elem(aKeyValues.row)
+						newCols[ii].Append(elem)
+						ii++
+					}
+
+					for _, k := range iNotKeysB {
+						elem := bCols[k].Elem(i)
+						newCols[ii].Append(elem)
+						ii++
+					}
+
+					continue
+				}
+			} // for check collision..
+
+			if !found {
+				// 'b' not found in 'a'..
+				ii := 0
+				for _, k := range iKeysB {
+					elem := bCols[k].Elem(i)
+					newCols[ii].Append(elem)
+					ii++
+				}
+				for _ = range iNotKeysA {
+					newCols[ii].Append(nil)
+					ii++
+				}
+				for _, k := range iNotKeysB {
+					elem := bCols[k].Elem(i)
+					newCols[ii].Append(elem)
+					ii++
+				}
+			}
+
+		} // probe for table B
+
+	} // scope for hash table a/ probe table b
+
+	{
+		var hashBucketsB hashBucketsT
+
+		// 1. build hash for B table
+		maxIndex := hashIndexT(len(hashBucketsB) - 1)
+
+		for i := 0; i < b.nrows; i++ {
+			var keysB []series.Element
+			for k := range keys {
+				keysB = append(keysB, bCols[iKeysB[k]].Elem(i))
+			}
+
+			hashB := hashJoinCalculation(keysB, maxIndex)
+
+			newKv := hashBucketValueT{values: keysB, row: i}
+			hashBucketsB[hashB] = append(hashBucketsB[hashB], newKv)
+		}
+
+		// 2. probe hash for A table
+		for i := 0; i < a.nrows; i++ {
+			var keysA []series.Element
+			for k := range keys {
+				keysA = append(keysA, aCols[iKeysA[k]].Elem(i))
+			}
+
+			keyAStr := keysA[0].String()
+
+			hashA := hashJoinCalculation(keysA, maxIndex)
+			buckets := hashBucketsB[hashA]
+
+			if len(buckets) == 0 {
+				// 'a' not found in 'b'..
+				ii := 0
+				for _, k := range iKeysA {
+					elem := aCols[k].Elem(i)
+					newCols[ii].Append(elem)
+					ii++
+				}
+				for _, k := range iNotKeysA {
+					elem := aCols[k].Elem(i)
+					newCols[ii].Append(elem)
+					ii++
+				}
+				for _ = range iNotKeysB {
+					newCols[ii].Append(nil)
+					ii++
+				}
+
+				continue
+			}
+
+			found := false
+
+			// check for collision..
+			for _, bKeyValues := range buckets {
+				areEquals := true
+
+				for keyIdx, bElem := range bKeyValues.values {
+					aElem := aCols[iKeysA[keyIdx]].Elem(i)
+
+					if !aElem.Eq(bElem) {
+						areEquals = false
+						break
+					}
+				}
+
+				if areEquals {
+					found = true
+					break
+				}
+			}
+
+			if !found {
+				// 'a' not found in 'b'..
+				ii := 0
+				for _, k := range iKeysA {
+					elem := aCols[k].Elem(i)
+					newCols[ii].Append(elem)
+					ii++
+				}
+				for _, k := range iNotKeysA {
+					elem := aCols[k].Elem(i)
+					newCols[ii].Append(elem)
+					ii++
+				}
+				for _ = range iNotKeysB {
+					newCols[ii].Append(nil)
+					ii++
+				}
+			}
+
+		} // probe for table B
+
+	} // scope for hash table b/ probe table a
+
+	return combineColumnsInput{
+		newCols: newCols,
+	}
+}
+
 //
 // Helper types/func for join hashing
 //
 
-// hash bucket
 type hashBucketValueT struct {
 	values []series.Element // source row keys
 	row    int              // source row number
@@ -818,3 +1063,5 @@ func hashJoinCalculation(elements []series.Element, max hashIndexT) hashIndexT {
 
 	return hashIndexT(hash % uint32(max))
 }
+
+//func finc(buckets hashBucketsT)

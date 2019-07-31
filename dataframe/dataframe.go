@@ -976,6 +976,11 @@ func (df DataFrame) InnerJoinHash(b DataFrame, keys ...string) DataFrame {
 	return df.innerJoinHashWithCombine(b, nil, nil, keys...)
 }
 
+// OuterJoinHash returns a DataFrame containing the inner join of two DataFrames.
+func (df DataFrame) OuterJoinHash(b DataFrame, keys ...string) DataFrame {
+	return df.outerJoinHashWithCombine(b, nil, nil, keys...)
+}
+
 // CrossJoin returns a DataFrame containing the cross join of two DataFrames.
 func (df DataFrame) CrossJoin(b DataFrame) DataFrame {
 	aCols := df.columns

@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 	"unicode"
 
 	"github.com/gonum/matrix/mat64"
@@ -2194,57 +2193,83 @@ func TestDataFrame_InnerJoinHash(t *testing.T) {
 	}
 }
 
-//
-// cmd-line: go test -timeout 1200s github.com/isuruceanu/gota/dataframe -run ^TestDataFrame_InnerJoinHash_Performance$ -test.v
-//
-// Rename this test for using - remove starting underscore (was renamed only because long-running).
-//
-func _TestDataFrame_InnerJoinHash_Performance(t *testing.T) {
-	df1 := readCvsFile("r35k-c73.csv")
-	df2 := readCvsFile("r30k-c4.csv")
-
-	if df1.Err != nil {
-		t.Errorf("df1 not loaded!")
-		return
+func TestDataFrame_OuterJoinHash(t *testing.T) {
+	a := LoadRecords(
+		[][]string{
+			[]string{"A", "B", "C", "D"},
+			[]string{"1", "4", "5.1", "1"},
+			[]string{"2", "4", "6.0", "1"},
+			[]string{"3", "3", "6.0", "0"},
+			[]string{"1", "2", "7.1", "0"},
+		},
+		DetectTypes(false),
+		DefaultType(series.Float),
+	)
+	b := LoadRecords(
+		[][]string{
+			[]string{"A", "F", "D"},
+			[]string{"1", "1", "1"},
+			[]string{"4", "2", "0"},
+			[]string{"2", "8", "0"},
+			[]string{"5", "9", "0"},
+		},
+		DetectTypes(false),
+		DefaultType(series.Float),
+	)
+	table := []struct {
+		keys  []string
+		expDf DataFrame
+	}{
+		{
+			[]string{"A", "D"},
+			LoadRecords(
+				[][]string{
+					[]string{"A", "D", "B", "C", "F"},
+					[]string{"1", "1", "4", "5.1", "1"},
+					[]string{"4", "0", "NaN", "NaN", "2"},
+					[]string{"2", "0", "NaN", "NaN", "8"},
+					[]string{"5", "0", "NaN", "NaN", "9"},
+					[]string{"2", "1", "4", "6.0", "NaN"},
+					[]string{"3", "0", "3", "6.0", "NaN"},
+					[]string{"1", "0", "2", "7.1", "NaN"},
+				},
+				DetectTypes(false),
+				DefaultType(series.Float),
+			),
+		},
+		{
+			[]string{"A"},
+			LoadRecords(
+				[][]string{
+					[]string{"A", "B", "C", "D_0", "F", "D_1"},
+					[]string{"1", "4", "5.1", "1", "1", "1"},
+					[]string{"1", "2", "7.1", "0", "1", "1"},
+					[]string{"4", "NaN", "NaN", "NaN", "2", "0"},
+					[]string{"2", "4", "6.0", "1", "8", "0"},
+					[]string{"5", "NaN", "NaN", "NaN", "9", "0"},
+					[]string{"3", "3", "6.0", "0", "NaN", "NaN"},
+				},
+				DetectTypes(false),
+				DefaultType(series.Float),
+			),
+		},
 	}
-
-	if df2.Err != nil {
-		t.Errorf("df2 not loaded!")
-		return
+	for testnum, test := range table {
+		c := a.OuterJoinHash(b, test.keys...)
+		if err := c.Err; err != nil {
+			t.Errorf("Test:%v\nError:%v", testnum, err)
+		}
+		// Check that the types are the same between both DataFrames
+		if !reflect.DeepEqual(test.expDf.Types(), c.Types()) {
+			t.Errorf("Different types:\nA:%v\nB:%v", test.expDf.Types(), c.Types())
+		}
+		// Check that the colnames are the same between both DataFrames
+		if !reflect.DeepEqual(test.expDf.Names(), c.Names()) {
+			t.Errorf("Different colnames:\nA:%v\nB:%v", test.expDf.Names(), c.Names())
+		}
+		// Check that the values are the same between both DataFrames
+		if !reflect.DeepEqual(test.expDf.Records(), c.Records()) {
+			t.Errorf("Different values:\nA:%v\nB:%v", test.expDf.Records(), c.Records())
+		}
 	}
-
-	t.Logf("\nInput Df1, Rows: %v, Cols: %v ..\n", df1.Nrow(), df1.Ncol())
-	t.Logf("\nInput Df2, Rows: %v, Cols: %v ..\n", df2.Nrow(), df2.Ncol())
-
-	const keyField = "ID"
-
-	startJoinHash := time.Now()
-	hashResult := df1.InnerJoinHash(df2, keyField)
-	elapsedJoinHash := time.Since(startJoinHash)
-
-	startJoin := time.Now()
-	joinResult := df1.InnerJoin(df2, keyField)
-	elapsedJoin := time.Since(startJoin)
-
-	if hashResult.Err != nil {
-		t.Errorf("InnerJoinHash failed: %v", hashResult.Err)
-		return
-	}
-
-	if joinResult.Err != nil {
-		t.Errorf("InnerJoin failed: %v", joinResult.Err)
-		return
-	}
-
-	if hashResult.Nrow() != joinResult.Nrow() {
-		t.Errorf("Different rows count! InnerJoinHash: %v, InnerJoin: %v", hashResult.Nrow(), joinResult.Nrow())
-		return
-	}
-
-	if hashResult.Ncol() != joinResult.Ncol() {
-		t.Errorf("Different cols count! InnerJoinHash: %v, InnerJoin: %v", hashResult.Ncol(), joinResult.Ncol())
-		return
-	}
-
-	t.Logf("\nelapsedJoinHash: %v, elapsedJoin: %v\n", elapsedJoinHash, elapsedJoin)
 }
