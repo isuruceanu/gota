@@ -65,7 +65,7 @@ func _TestDataFrame_InnerJoinHash_Performance(t *testing.T) {
 //
 // Rename this test for using - remove starting underscore (was renamed only because long-running).
 //
-func TestDataFrame_OuterJoinHash_Performance(t *testing.T) {
+func _TestDataFrame_OuterJoinHash_Performance(t *testing.T) {
 	df1 := readCvsFile("r35k-c73.csv")
 	df2 := readCvsFile("r30k-c4.csv")
 
@@ -91,6 +91,8 @@ func TestDataFrame_OuterJoinHash_Performance(t *testing.T) {
 	startJoin := time.Now()
 	joinResult := df1.OuterJoin(df2, keyField)
 	elapsedJoin := time.Since(startJoin)
+
+	// writeCsvFile("OuterJoinHash.csv", hashResult)
 
 	if hashResult.Err != nil {
 		t.Errorf("OuterJoinHash failed: %v", hashResult.Err)

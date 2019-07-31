@@ -960,8 +960,6 @@ func prepareOuterJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 				keysA = append(keysA, aCols[iKeysA[k]].Elem(i))
 			}
 
-			keyAStr := keysA[0].String()
-
 			hashA := hashJoinCalculation(keysA, maxIndex)
 			buckets := hashBucketsB[hashA]
 
