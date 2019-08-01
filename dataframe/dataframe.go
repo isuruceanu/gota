@@ -976,9 +976,14 @@ func (df DataFrame) InnerJoinHash(b DataFrame, keys ...string) DataFrame {
 	return df.innerJoinHashWithCombine(b, nil, nil, keys...)
 }
 
-// OuterJoinHash returns a DataFrame containing the inner join of two DataFrames.
+// OuterJoinHash returns a DataFrame containing the outer join of two DataFrames.
 func (df DataFrame) OuterJoinHash(b DataFrame, keys ...string) DataFrame {
 	return df.outerJoinHashWithCombine(b, nil, nil, keys...)
+}
+
+// LeftJoinHash returns a DataFrame containing the left outer join of two DataFrames.
+func (df DataFrame) LeftJoinHash(b DataFrame, keys ...string) DataFrame {
+	return df.leftJoinHashWithCombine(b, nil, nil, keys...)
 }
 
 // CrossJoin returns a DataFrame containing the cross join of two DataFrames.

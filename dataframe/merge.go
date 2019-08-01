@@ -631,3 +631,15 @@ func (df DataFrame) outerJoinHashWithCombine(b DataFrame, compareFn combineFuncT
 
 	return New(newCols...)
 }
+
+func (df DataFrame) leftJoinHashWithCombine(b DataFrame, compareFn combineFuncType, combineHeaderBuilder combineHeaderBuilderFuncType, keys ...string) DataFrame {
+	joinInput, err := prepareJoin(df, b, compareFn, keys...)
+	if err != nil {
+		return DataFrame{Err: err}
+	}
+
+	combineColumnsInput := prepareLeftJoinHashForCombineColumns(joinInput)
+	newCols := combineColumns(joinInput.iCombinedCols, combineColumnsInput.newCols, combineHeaderBuilder)
+
+	return New(newCols...)
+}
