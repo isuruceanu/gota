@@ -662,17 +662,20 @@ func (df DataFrame) rightJoinHashWithCombine(b DataFrame, compareFn combineFuncT
 		var result []series.Series
 
 		for _, o := range original {
-			foundById := false
+			foundByID := false
+
 			for _, c := range current {
-				originalId := o.OtherInfo.(int)
-				currentId := c.OtherInfo.(int)
-				if originalId == currentId {
+				originalID := o.OtherInfo.(int)
+				currentID := c.OtherInfo.(int)
+
+				if originalID == currentID {
 					result = append(result, c)
-					foundById = true
+					foundByID = true
 					break
 				}
 			}
-			if !foundById {
+
+			if !foundByID {
 				for _, c := range current {
 					if o.Name == c.Name {
 						result = append(result, c)
@@ -685,31 +688,33 @@ func (df DataFrame) rightJoinHashWithCombine(b DataFrame, compareFn combineFuncT
 		return result
 	}
 
+	/*
+		printSeries := func(prefix string, s []series.Series) {
+			fmt.Println(prefix)
+			for _, c := range s {
+				fmt.Printf("%v %v --", c.Name, c.OtherInfo)
+			}
+			fmt.Println()
+		}
+		// */
+
 	aWithID := setColumnsID(&df, 1)
 	bWithID := setColumnsID(&b, 10000)
 
-	joinInput, err := prepareJoin(aWithID, bWithID, compareFn, keys...)
+	rightJoinInput, err := prepareJoin(aWithID, bWithID, compareFn, keys...)
 	if err != nil {
 		return DataFrame{Err: err}
 	}
 
-	joinInputInverted, err := prepareJoin(bWithID, aWithID, compareFn, keys...)
+	leftJoinInput, err := prepareJoin(bWithID, aWithID, compareFn, keys...)
 	if err != nil {
 		return DataFrame{Err: err}
 	}
 
-	combineColumnsInvertedInput := prepareLeftJoinHashForCombineColumns(joinInputInverted)
-	newCols := combineColumns(joinInput.iCombinedCols, combineColumnsInvertedInput.newCols, combineHeaderBuilder)
+	leftJoinCombineInput := prepareLeftJoinHashForCombineColumns(leftJoinInput)
+	leftJoinCols := combineColumns(leftJoinInput.iCombinedCols, leftJoinCombineInput.newCols, combineHeaderBuilder)
 
-	newCols = reorderByOrigin(joinInput.newCols, newCols)
+	resultCols := reorderByOrigin(rightJoinInput.newCols, leftJoinCols)
 
-	return New(newCols...)
-}
-
-func printSeries(prefix string, s []series.Series) {
-	fmt.Println(prefix)
-	for _, c := range s {
-		fmt.Printf("%v %v --", c.Name, c.OtherInfo)
-	}
-	fmt.Println()
+	return New(resultCols...)
 }
