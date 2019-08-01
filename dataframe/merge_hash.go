@@ -166,7 +166,7 @@ func prepareOuterJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 				newCols[ii].Append(elem)
 				ii++
 			}
-			for _ = range iNotKeysA {
+			for range iNotKeysA {
 				newCols[ii].Append(nil)
 				ii++
 			}
@@ -200,7 +200,7 @@ func prepareOuterJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 
 		probeHashForDataframe(b, keys, iKeysB, hashBucketsA, maxIndex, copyOnEmpty, onKeysEqual, copyOnEmpty)
 
-	} // scope for hash table a/ probe table b
+	} // scope for [hash table a]/[probe table b]
 
 	{ // scope for buckets B -- find NIL b
 
@@ -220,7 +220,7 @@ func prepareOuterJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 				newCols[ii].Append(elem)
 				ii++
 			}
-			for _ = range iNotKeysB {
+			for range iNotKeysB {
 				newCols[ii].Append(nil)
 				ii++
 			}
@@ -228,7 +228,7 @@ func prepareOuterJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 
 		probeHashForDataframe(a, keys, iKeysA, hashBucketsB, maxIndex, copyOnEmpty, defaultKeysEqualProbe, copyOnEmpty)
 
-	} // scope for hash table b/ probe table a
+	} // scope for [hash table b]/[probe table a]
 
 	return combineColumnsInput{
 		newCols: newCols,
