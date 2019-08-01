@@ -291,7 +291,9 @@ func prepareLeftJoinHashForCombineColumns(joinInput prepareJoinInput) combineCol
 		}
 	}
 
-	probeHashForDataframe(a, keys, iKeysA, hashBucketsB, maxIndex, onEmptyBucketProbe, onKeysEqual, defaultKeysNotFoundProbe)
+	onKeysNotFoundProbe := onEmptyBucketProbe
+
+	probeHashForDataframe(a, keys, iKeysA, hashBucketsB, maxIndex, onEmptyBucketProbe, onKeysEqual, onKeysNotFoundProbe)
 
 	// result..
 	return combineColumnsInput{

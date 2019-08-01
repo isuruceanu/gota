@@ -5,27 +5,33 @@ import (
 	"time"
 )
 
+func loadDataframesForPerformance(t *testing.T) (DataFrame, DataFrame) {
+	df1 := readCvsFile("r35k-c73.csv") // ID: 21..35000
+	df2 := readCvsFile("r30k-c4.csv")  // ID: 1..30000
+
+	if df1.Err != nil {
+		t.Errorf("df1 not loaded!")
+		return df1, df2
+	}
+
+	if df2.Err != nil {
+		t.Errorf("df2 not loaded!")
+		return df1, df2
+	}
+
+	t.Logf("\nInput Df1, Rows: %v, Cols: %v ..\n", df1.Nrow(), df1.Ncol())
+	t.Logf("\nInput Df2, Rows: %v, Cols: %v ..\n", df2.Nrow(), df2.Ncol())
+
+	return df1, df2
+}
+
 //
 // cmd-line: go test -timeout 1200s github.com/isuruceanu/gota/dataframe -run ^TestDataFrame_InnerJoinHash_Performance$ -test.v
 //
 // Rename this test for using - remove starting underscore (was renamed only because long-running).
 //
 func _TestDataFrame_InnerJoinHash_Performance(t *testing.T) {
-	df1 := readCvsFile("r35k-c73.csv") // ID: 21..35000
-	df2 := readCvsFile("r30k-c4.csv")  // ID: 1.30000
-
-	if df1.Err != nil {
-		t.Errorf("df1 not loaded!")
-		return
-	}
-
-	if df2.Err != nil {
-		t.Errorf("df2 not loaded!")
-		return
-	}
-
-	t.Logf("\nInput Df1, Rows: %v, Cols: %v ..\n", df1.Nrow(), df1.Ncol())
-	t.Logf("\nInput Df2, Rows: %v, Cols: %v ..\n", df2.Nrow(), df2.Ncol())
+	df1, df2 := loadDataframesForPerformance(t)
 
 	for i := 0; i < 5; i++ {
 		const keyField = "ID"
@@ -37,6 +43,8 @@ func _TestDataFrame_InnerJoinHash_Performance(t *testing.T) {
 		startJoin := time.Now()
 		joinResult := df1.InnerJoin(df2, keyField)
 		elapsedJoin := time.Since(startJoin)
+
+		// writeCsvFile("InnerJoinHash.csv", hashResult)
 
 		if hashResult.Err != nil {
 			t.Errorf("InnerJoinHash failed: %v", hashResult.Err)
@@ -68,21 +76,7 @@ func _TestDataFrame_InnerJoinHash_Performance(t *testing.T) {
 // Rename this test for using - remove starting underscore (was renamed only because long-running).
 //
 func _TestDataFrame_OuterJoinHash_Performance(t *testing.T) {
-	df1 := readCvsFile("r35k-c73.csv") // ID: 21..35000
-	df2 := readCvsFile("r30k-c4.csv")  // ID: 1.30000
-
-	if df1.Err != nil {
-		t.Errorf("df1 not loaded!")
-		return
-	}
-
-	if df2.Err != nil {
-		t.Errorf("df2 not loaded!")
-		return
-	}
-
-	t.Logf("\nInput Df1, Rows: %v, Cols: %v ..\n", df1.Nrow(), df1.Ncol())
-	t.Logf("\nInput Df2, Rows: %v, Cols: %v ..\n", df2.Nrow(), df2.Ncol())
+	df1, df2 := loadDataframesForPerformance(t)
 
 	for i := 0; i < 3; i++ {
 		const keyField = "ID"
@@ -118,5 +112,50 @@ func _TestDataFrame_OuterJoinHash_Performance(t *testing.T) {
 		}
 
 		t.Logf("\nOuterJoinHash: %v, OuterJoin: %v\n", elapsedJoinHash, elapsedJoin)
+	}
+}
+
+//
+// cmd-line: go test -timeout 1200s github.com/isuruceanu/gota/dataframe -run ^TestDataFrame_LeftJoinHash_Performance$ -test.v
+//
+// Rename this test for using - remove starting underscore (was renamed only because long-running).
+//
+func _TestDataFrame_LeftJoinHash_Performance(t *testing.T) {
+	df1, df2 := loadDataframesForPerformance(t)
+
+	for i := 0; i < 3; i++ {
+		const keyField = "ID"
+
+		startJoinHash := time.Now()
+		hashResult := df1.LeftJoinHash(df2, keyField)
+		elapsedJoinHash := time.Since(startJoinHash)
+
+		startJoin := time.Now()
+		joinResult := df1.LeftJoin(df2, keyField)
+		elapsedJoin := time.Since(startJoin)
+
+		// writeCsvFile("LeftJoinHash.csv", hashResult)
+
+		if hashResult.Err != nil {
+			t.Errorf("LeftJoinHash failed: %v", hashResult.Err)
+			return
+		}
+
+		if joinResult.Err != nil {
+			t.Errorf("LeftJoin failed: %v", joinResult.Err)
+			return
+		}
+
+		if hashResult.Nrow() != joinResult.Nrow() {
+			t.Errorf("Different rows count! LeftJoinHash: %v, LeftJoin: %v", hashResult.Nrow(), joinResult.Nrow())
+			return
+		}
+
+		if hashResult.Ncol() != joinResult.Ncol() {
+			t.Errorf("Different cols count! LeftJoinHash: %v, LeftJoin: %v", hashResult.Ncol(), joinResult.Ncol())
+			return
+		}
+
+		t.Logf("\nLeftJoinHash: %v, LeftJoin: %v\n", elapsedJoinHash, elapsedJoin)
 	}
 }
