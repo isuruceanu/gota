@@ -2,7 +2,6 @@ package dataframe
 
 import (
 	"fmt"
-	"hash/fnv"
 	"strings"
 
 	"github.com/isuruceanu/gota/series"
