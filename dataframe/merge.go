@@ -737,23 +737,8 @@ func prepareInnerJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 	newCols := joinInput.newCols
 
 	// 1. build hash
-
 	// TODO: select table with min rows for hashing
-
-	var hashBucketsA hashBucketsT
-	maxIndex := hashIndexT(len(hashBucketsA) - 1)
-
-	for i := 0; i < a.nrows; i++ {
-		var keysA []series.Element
-
-		for k := range keys {
-			keysA = append(keysA, aCols[iKeysA[k]].Elem(i))
-		}
-
-		hashA := hashJoinCalculation(keysA, maxIndex)
-
-		hashBucketsA[hashA] = append(hashBucketsA[hashA], hashBucketValueT{keys: keysA, row: i})
-	}
+	hashBucketsA, maxIndex := createHashBuckets(a, keys, iKeysA)
 
 	// 2. probe hash
 	for i := 0; i < b.nrows; i++ {
@@ -828,19 +813,7 @@ func prepareOuterJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 	{ // scope for buckets A -- find inner join AND NIL b
 
 		// 1. build hash for A table
-		var hashBucketsA hashBucketsT
-		maxIndex := hashIndexT(len(hashBucketsA) - 1)
-
-		for i := 0; i < a.nrows; i++ {
-			var keysA []series.Element
-			for k := range keys {
-				keysA = append(keysA, aCols[iKeysA[k]].Elem(i))
-			}
-
-			hashA := hashJoinCalculation(keysA, maxIndex)
-
-			hashBucketsA[hashA] = append(hashBucketsA[hashA], hashBucketValueT{keys: keysA, row: i})
-		}
+		hashBucketsA, maxIndex := createHashBuckets(a, keys, iKeysA)
 
 		// 2. probe hash for B table
 		for i := 0; i < b.nrows; i++ {
@@ -938,21 +911,9 @@ func prepareOuterJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 	} // scope for hash table a/ probe table b
 
 	{ // scope for buckets B -- find NIL a
-		var hashBucketsB hashBucketsT
 
 		// 1. build hash for B table
-		maxIndex := hashIndexT(len(hashBucketsB) - 1)
-
-		for i := 0; i < b.nrows; i++ {
-			var keysB []series.Element
-			for k := range keys {
-				keysB = append(keysB, bCols[iKeysB[k]].Elem(i))
-			}
-
-			hashB := hashJoinCalculation(keysB, maxIndex)
-
-			hashBucketsB[hashB] = append(hashBucketsB[hashB], hashBucketValueT{keys: keysB, row: i})
-		}
+		hashBucketsB, maxIndex := createHashBuckets(b, keys, iKeysB)
 
 		// 2. probe hash for A table
 		for i := 0; i < a.nrows; i++ {
@@ -1066,4 +1027,26 @@ func hashJoinCalculation(elements []series.Element, max hashIndexT) hashIndexT {
 	}
 
 	return hashIndexT(hash % uint32(max))
+}
+
+func createHashBuckets(df *DataFrame, keys []string, idxKeys []int) (hashBucketsT, hashIndexT) {
+	var hashBuckets hashBucketsT
+	maxIndex := hashIndexT(len(hashBuckets) - 1)
+
+	cols := df.columns
+
+	for i := 0; i < df.nrows; i++ {
+		var keysVal []series.Element
+
+		for k := range keys {
+			keyCol := cols[idxKeys[k]]
+			keysVal = append(keysVal, keyCol.Elem(i))
+		}
+
+		hash := hashJoinCalculation(keysVal, maxIndex)
+
+		hashBuckets[hash] = append(hashBuckets[hash], hashBucketValueT{keys: keysVal, row: i})
+	}
+
+	return hashBuckets, maxIndex
 }
