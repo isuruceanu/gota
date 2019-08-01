@@ -377,7 +377,7 @@ func (hb hashBucketT) empty() bool {
 	return len(hb) == 0
 }
 
-type hashBucketsT [1024 * 64]hashBucketT // TODO: dynamic length
+type hashBucketsT []hashBucketT
 
 type hashIndexT int
 
@@ -396,7 +396,8 @@ func hashJoinCalculation(elements []series.Element, max hashIndexT) hashIndexT {
 }
 
 func createHashBuckets(df *DataFrame, keys []string, idxKeys []int) (hashBucketsT, hashIndexT) {
-	var hashBuckets hashBucketsT
+	var hashBuckets hashBucketsT = make([]hashBucketT, df.nrows, df.nrows)
+
 	maxIndex := hashIndexT(len(hashBuckets) - 1)
 
 	cols := df.columns
