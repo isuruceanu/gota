@@ -643,3 +643,73 @@ func (df DataFrame) leftJoinHashWithCombine(b DataFrame, compareFn combineFuncTy
 
 	return New(newCols...)
 }
+
+func (df DataFrame) rightJoinHashWithCombine(b DataFrame, compareFn combineFuncType, combineHeaderBuilder combineHeaderBuilderFuncType, keys ...string) DataFrame {
+	setColumnsID := func(inputDf *DataFrame, startId int) DataFrame {
+		var s []series.Series
+
+		id := startId
+		for _, x := range inputDf.columns {
+			x.OtherInfo = id
+			s = append(s, x)
+			id++
+		}
+
+		return New(s...)
+	}
+
+	reorderByOrigin := func(original, current []series.Series) []series.Series {
+		var result []series.Series
+
+		for _, o := range original {
+			foundById := false
+			for _, c := range current {
+				originalId := o.OtherInfo.(int)
+				currentId := c.OtherInfo.(int)
+				if originalId == currentId {
+					result = append(result, c)
+					foundById = true
+					break
+				}
+			}
+			if !foundById {
+				for _, c := range current {
+					if o.Name == c.Name {
+						result = append(result, c)
+						break
+					}
+				}
+			}
+		}
+
+		return result
+	}
+
+	aWithID := setColumnsID(&df, 1)
+	bWithID := setColumnsID(&b, 10000)
+
+	joinInput, err := prepareJoin(aWithID, bWithID, compareFn, keys...)
+	if err != nil {
+		return DataFrame{Err: err}
+	}
+
+	joinInputInverted, err := prepareJoin(bWithID, aWithID, compareFn, keys...)
+	if err != nil {
+		return DataFrame{Err: err}
+	}
+
+	combineColumnsInvertedInput := prepareLeftJoinHashForCombineColumns(joinInputInverted)
+	newCols := combineColumns(joinInput.iCombinedCols, combineColumnsInvertedInput.newCols, combineHeaderBuilder)
+
+	newCols = reorderByOrigin(joinInput.newCols, newCols)
+
+	return New(newCols...)
+}
+
+func printSeries(prefix string, s []series.Series) {
+	fmt.Println(prefix)
+	for _, c := range s {
+		fmt.Printf("%v %v --", c.Name, c.OtherInfo)
+	}
+	fmt.Println()
+}

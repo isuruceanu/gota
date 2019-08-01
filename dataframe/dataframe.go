@@ -986,6 +986,11 @@ func (df DataFrame) LeftJoinHash(b DataFrame, keys ...string) DataFrame {
 	return df.leftJoinHashWithCombine(b, nil, nil, keys...)
 }
 
+// RightJoinHash returns a DataFrame containing the left outer join of two DataFrames.
+func (df DataFrame) RightJoinHash(b DataFrame, keys ...string) DataFrame {
+	return df.rightJoinHashWithCombine(b, nil, nil, keys...)
+}
+
 // CrossJoin returns a DataFrame containing the cross join of two DataFrames.
 func (df DataFrame) CrossJoin(b DataFrame) DataFrame {
 	aCols := df.columns

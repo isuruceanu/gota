@@ -159,3 +159,48 @@ func _TestDataFrame_LeftJoinHash_Performance(t *testing.T) {
 		t.Logf("\nLeftJoinHash: %v, LeftJoin: %v\n", elapsedJoinHash, elapsedJoin)
 	}
 }
+
+//
+// cmd-line: go test -timeout 1200s github.com/isuruceanu/gota/dataframe -run ^TestDataFrame_RightJoinHash_Performance$ -test.v
+//
+// Rename this test for using - remove starting underscore (was renamed only because long-running).
+//
+func _TestDataFrame_RightJoinHash_Performance(t *testing.T) {
+	df1, df2 := loadDataframesForPerformance(t)
+
+	for i := 0; i < 3; i++ {
+		const keyField = "ID"
+
+		startJoinHash := time.Now()
+		hashResult := df1.RightJoinHash(df2, keyField)
+		elapsedJoinHash := time.Since(startJoinHash)
+
+		startJoin := time.Now()
+		joinResult := df1.RightJoin(df2, keyField)
+		elapsedJoin := time.Since(startJoin)
+
+		// writeCsvFile("RightJoinHash.csv", hashResult)
+
+		if hashResult.Err != nil {
+			t.Errorf("RightJoinHash failed: %v", hashResult.Err)
+			return
+		}
+
+		if joinResult.Err != nil {
+			t.Errorf("RightJoin failed: %v", joinResult.Err)
+			return
+		}
+
+		if hashResult.Nrow() != joinResult.Nrow() {
+			t.Errorf("Different rows count! RightJoinHash: %v, RightJoin: %v", hashResult.Nrow(), joinResult.Nrow())
+			return
+		}
+
+		if hashResult.Ncol() != joinResult.Ncol() {
+			t.Errorf("Different cols count! RightJoinHash: %v, RightJoin: %v", hashResult.Ncol(), joinResult.Ncol())
+			return
+		}
+
+		t.Logf("\nRightJoinHash: %v, RightJoin: %v\n", elapsedJoinHash, elapsedJoin)
+	}
+}
