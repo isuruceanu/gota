@@ -607,3 +607,114 @@ var (
 		return val == t.rBIdx
 	}
 )
+
+func (df DataFrame) innerJoinHashWithCombine(b DataFrame, compareFn combineFuncType, combineHeaderBuilder combineHeaderBuilderFuncType, keys ...string) DataFrame {
+	joinInput, err := prepareJoin(df, b, compareFn, keys...)
+	if err != nil {
+		return DataFrame{Err: err}
+	}
+
+	combineColumnsInput := prepareInnerJoinHashForCombineColumns(joinInput)
+	newCols := combineColumns(joinInput.iCombinedCols, combineColumnsInput.newCols, combineHeaderBuilder)
+
+	return New(newCols...)
+}
+
+func (df DataFrame) outerJoinHashWithCombine(b DataFrame, compareFn combineFuncType, combineHeaderBuilder combineHeaderBuilderFuncType, keys ...string) DataFrame {
+	joinInput, err := prepareJoin(df, b, compareFn, keys...)
+	if err != nil {
+		return DataFrame{Err: err}
+	}
+
+	combineColumnsInput := prepareOuterJoinHashForCombineColumns(joinInput)
+	newCols := combineColumns(joinInput.iCombinedCols, combineColumnsInput.newCols, combineHeaderBuilder)
+
+	return New(newCols...)
+}
+
+func (df DataFrame) leftJoinHashWithCombine(b DataFrame, compareFn combineFuncType, combineHeaderBuilder combineHeaderBuilderFuncType, keys ...string) DataFrame {
+	joinInput, err := prepareJoin(df, b, compareFn, keys...)
+	if err != nil {
+		return DataFrame{Err: err}
+	}
+
+	combineColumnsInput := prepareLeftJoinHashForCombineColumns(joinInput)
+	newCols := combineColumns(joinInput.iCombinedCols, combineColumnsInput.newCols, combineHeaderBuilder)
+
+	return New(newCols...)
+}
+
+func (df DataFrame) rightJoinHashWithCombine(b DataFrame, compareFn combineFuncType, combineHeaderBuilder combineHeaderBuilderFuncType, keys ...string) DataFrame {
+	setColumnsID := func(inputDf *DataFrame, startId int) DataFrame {
+		var s []series.Series
+
+		id := startId
+		for _, x := range inputDf.columns {
+			x.OtherInfo = id
+			s = append(s, x)
+			id++
+		}
+
+		return New(s...)
+	}
+
+	reorderByOrigin := func(original, current []series.Series) []series.Series {
+		var result []series.Series
+
+		for _, o := range original {
+			foundByID := false
+
+			for _, c := range current {
+				originalID := o.OtherInfo.(int)
+				currentID := c.OtherInfo.(int)
+
+				if originalID == currentID {
+					result = append(result, c)
+					foundByID = true
+					break
+				}
+			}
+
+			if !foundByID {
+				for _, c := range current {
+					if o.Name == c.Name {
+						result = append(result, c)
+						break
+					}
+				}
+			}
+		}
+
+		return result
+	}
+
+	/*
+		printSeries := func(prefix string, s []series.Series) {
+			fmt.Println(prefix)
+			for _, c := range s {
+				fmt.Printf("%v %v --", c.Name, c.OtherInfo)
+			}
+			fmt.Println()
+		}
+		// */
+
+	aWithID := setColumnsID(&df, 1)
+	bWithID := setColumnsID(&b, 10000)
+
+	rightJoinInput, err := prepareJoin(aWithID, bWithID, compareFn, keys...)
+	if err != nil {
+		return DataFrame{Err: err}
+	}
+
+	leftJoinInput, err := prepareJoin(bWithID, aWithID, compareFn, keys...)
+	if err != nil {
+		return DataFrame{Err: err}
+	}
+
+	leftJoinCombineInput := prepareLeftJoinHashForCombineColumns(leftJoinInput)
+	leftJoinCols := combineColumns(leftJoinInput.iCombinedCols, leftJoinCombineInput.newCols, combineHeaderBuilder)
+
+	resultCols := reorderByOrigin(rightJoinInput.newCols, leftJoinCols)
+
+	return New(resultCols...)
+}

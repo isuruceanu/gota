@@ -1,6 +1,7 @@
 package dataframe
 
 import (
+	"log"
 	"os"
 	"testing"
 
@@ -36,6 +37,20 @@ func readCvsFile(file string) (df DataFrame) {
 		return ReadCSV(csvfile)
 	}
 
+}
+
+func writeCsvFile(filepath string, df DataFrame) {
+	f, err := os.Create(filepath)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer f.Close()
+
+	if err := df.WriteCSV(f); err != nil {
+		log.Fatal(err)
+	}
 }
 
 func calcStat(hexoColumn string) func(DataFrame) series.Series {
