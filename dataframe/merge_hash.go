@@ -315,7 +315,7 @@ func prepareRightJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 	// 1. build hash for A table
 	hashBucketsA := createHashBuckets(a, keys, iKeysA)
 
-	// 2. probe hash for A table
+	// 2. probe hash for B table
 	var onKeysEqual onKeysEqualProbe = func(foundBucketValue hashBucketValueT, row int) {
 		ii := 0
 
