@@ -301,6 +301,72 @@ func prepareLeftJoinHashForCombineColumns(joinInput prepareJoinInput) combineCol
 	}
 }
 
+func prepareRightJoinHashForCombineColumns(joinInput prepareJoinInput) combineColumnsInput {
+	// prpare input..
+	a, b := joinInput.a, joinInput.b
+	keys := joinInput.keys
+	iKeysA, iKeysB, iNotKeysA, iNotKeysB := joinInput.iKeysA, joinInput.iKeysB, joinInput.iNotKeysA, joinInput.iNotKeysB
+
+	aCols := a.columns
+	bCols := b.columns
+
+	newCols := joinInput.newCols
+
+	// 1. build hash for A table
+	hashBucketsA := createHashBuckets(a, keys, iKeysA)
+
+	// 2. probe hash for A table
+	var onKeysEqual onKeysEqualProbe = func(foundBucketValue hashBucketValueT, row int) {
+		ii := 0
+
+		for _, k := range iKeysB {
+			elem := bCols[k].Elem(row)
+			newCols[ii].Append(elem)
+			ii++
+		}
+
+		for _, k := range iNotKeysA {
+			elem := aCols[k].Elem(foundBucketValue.row)
+			newCols[ii].Append(elem)
+			ii++
+		}
+		for _, k := range iNotKeysB {
+			elem := bCols[k].Elem(row)
+			newCols[ii].Append(elem)
+			ii++
+		}
+	}
+
+	var onEmptyBucketProbe = func(row int) {
+		ii := 0
+		for _, k := range iKeysB {
+			elem := bCols[k].Elem(row)
+			newCols[ii].Append(elem)
+			ii++
+		}
+
+		for range iNotKeysA {
+			newCols[ii].Append(nil)
+			ii++
+		}
+
+		for _, k := range iNotKeysB {
+			elem := bCols[k].Elem(row)
+			newCols[ii].Append(elem)
+			ii++
+		}
+	}
+
+	onKeysNotFoundProbe := onEmptyBucketProbe
+
+	probeHashForDataframe(b, keys, iKeysB, hashBucketsA, onEmptyBucketProbe, onKeysEqual, onKeysNotFoundProbe)
+
+	// result..
+	return combineColumnsInput{
+		newCols: newCols,
+	}
+}
+
 //
 // Helper types/func for join hashing
 //
