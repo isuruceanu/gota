@@ -111,7 +111,7 @@ func prepareInnerJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 
 	// 1. build hash
 	// TODO: select table with min rows for hashing
-	hashBucketsA, maxIndex := createHashBuckets(a, keys, iKeysA)
+	hashBucketsA := createHashBuckets(a, keys, iKeysA)
 
 	// 2. probe hash
 	var onKeysEqual onKeysEqualProbe = func(foundBucketValue hashBucketValueT, row int) {
@@ -135,7 +135,7 @@ func prepareInnerJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 		}
 	}
 
-	probeHashForDataframe(b, keys, iKeysB, hashBucketsA, maxIndex, defaultEmptyBucketProbe, onKeysEqual, defaultKeysNotFoundProbe)
+	probeHashForDataframe(b, keys, iKeysB, hashBucketsA, defaultEmptyBucketProbe, onKeysEqual, defaultKeysNotFoundProbe)
 
 	// result..
 	return combineColumnsInput{
@@ -156,7 +156,7 @@ func prepareOuterJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 
 	{ // scope for buckets A -- find inner join AND NIL a
 		// 1. build hash for A table
-		hashBucketsA, maxIndex := createHashBuckets(a, keys, iKeysA)
+		hashBucketsA := createHashBuckets(a, keys, iKeysA)
 
 		// 2. probe hash for B table
 		copyOnEmpty := func(row int) {
@@ -198,14 +198,14 @@ func prepareOuterJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 			}
 		}
 
-		probeHashForDataframe(b, keys, iKeysB, hashBucketsA, maxIndex, copyOnEmpty, onKeysEqual, copyOnEmpty)
+		probeHashForDataframe(b, keys, iKeysB, hashBucketsA, copyOnEmpty, onKeysEqual, copyOnEmpty)
 
 	} // scope for [hash table a]/[probe table b]
 
 	{ // scope for buckets B -- find NIL b
 
 		// 1. build hash for B table
-		hashBucketsB, maxIndex := createHashBuckets(b, keys, iKeysB)
+		hashBucketsB := createHashBuckets(b, keys, iKeysB)
 
 		// 2. probe hash for A table
 		copyOnEmpty := func(row int) {
@@ -226,7 +226,7 @@ func prepareOuterJoinHashForCombineColumns(joinInput prepareJoinInput) combineCo
 			}
 		}
 
-		probeHashForDataframe(a, keys, iKeysA, hashBucketsB, maxIndex, copyOnEmpty, defaultKeysEqualProbe, copyOnEmpty)
+		probeHashForDataframe(a, keys, iKeysA, hashBucketsB, copyOnEmpty, defaultKeysEqualProbe, copyOnEmpty)
 
 	} // scope for [hash table b]/[probe table a]
 
@@ -247,7 +247,7 @@ func prepareLeftJoinHashForCombineColumns(joinInput prepareJoinInput) combineCol
 	newCols := joinInput.newCols
 
 	// 1. build hash for B table
-	hashBucketsB, maxIndex := createHashBuckets(b, keys, iKeysB)
+	hashBucketsB := createHashBuckets(b, keys, iKeysB)
 
 	// 2. probe hash for A table
 	var onKeysEqual onKeysEqualProbe = func(foundBucketValue hashBucketValueT, row int) {
@@ -293,7 +293,7 @@ func prepareLeftJoinHashForCombineColumns(joinInput prepareJoinInput) combineCol
 
 	onKeysNotFoundProbe := onEmptyBucketProbe
 
-	probeHashForDataframe(a, keys, iKeysA, hashBucketsB, maxIndex, onEmptyBucketProbe, onKeysEqual, onKeysNotFoundProbe)
+	probeHashForDataframe(a, keys, iKeysA, hashBucketsB, onEmptyBucketProbe, onKeysEqual, onKeysNotFoundProbe)
 
 	// result..
 	return combineColumnsInput{
@@ -316,7 +316,7 @@ var defaultKeysNotFoundProbe onKeysNotFoundProbe = func(row int) { /* no-op */ }
 
 func probeHashForDataframe(
 	df *DataFrame, dfKeys []string, idxKeys []int,
-	hashBuckets hashBucketsT, maxIndex hashIndexT,
+	hashBuckets hashBucketsT,
 	onEmpty onEmptyBucketProbe, onKeysEqual onKeysEqualProbe, onKeysNotFound onKeysNotFoundProbe) {
 
 	cols := df.columns
@@ -327,9 +327,9 @@ func probeHashForDataframe(
 			keys = append(keys, cols[idxKeys[k]].Elem(i))
 		}
 
-		hash := hashJoinCalculation(keys, maxIndex)
+		hash := hashJoinCalculation(keys, hashBuckets.maxIndex)
 
-		bucket := hashBuckets[hash]
+		bucket := hashBuckets.buckets[hash]
 
 		if bucket.empty() {
 			// no keys matches..
@@ -371,15 +371,18 @@ type hashBucketValueT struct {
 	row  int              // source row number
 }
 
+type hashIndexT int
+
 type hashBucketT []hashBucketValueT
 
 func (hb hashBucketT) empty() bool {
 	return len(hb) == 0
 }
 
-type hashBucketsT []hashBucketT
-
-type hashIndexT int
+type hashBucketsT struct {
+	buckets  []hashBucketT
+	maxIndex hashIndexT
+}
 
 func hashJoinCalculation(elements []series.Element, max hashIndexT) hashIndexT {
 	var hash uint32
@@ -395,10 +398,17 @@ func hashJoinCalculation(elements []series.Element, max hashIndexT) hashIndexT {
 	return hashIndexT(hash % uint32(max))
 }
 
-func createHashBuckets(df *DataFrame, keys []string, idxKeys []int) (hashBucketsT, hashIndexT) {
-	var hashBuckets hashBucketsT = make([]hashBucketT, df.nrows, df.nrows)
+func newHashBuckets(requestedSize int) hashBucketsT {
+	buckets := make([]hashBucketT, requestedSize, requestedSize)
 
-	maxIndex := hashIndexT(len(hashBuckets) - 1)
+	return hashBucketsT{
+		buckets:  buckets,
+		maxIndex: hashIndexT(len(buckets) - 1),
+	}
+}
+
+func createHashBuckets(df *DataFrame, keys []string, idxKeys []int) hashBucketsT {
+	hashBuckets := newHashBuckets(df.nrows)
 
 	cols := df.columns
 
@@ -410,10 +420,10 @@ func createHashBuckets(df *DataFrame, keys []string, idxKeys []int) (hashBuckets
 			keysVal = append(keysVal, keyCol.Elem(i))
 		}
 
-		hash := hashJoinCalculation(keysVal, maxIndex)
+		hash := hashJoinCalculation(keysVal, hashBuckets.maxIndex)
 
-		hashBuckets[hash] = append(hashBuckets[hash], hashBucketValueT{keys: keysVal, row: i})
+		hashBuckets.buckets[hash] = append(hashBuckets.buckets[hash], hashBucketValueT{keys: keysVal, row: i})
 	}
 
-	return hashBuckets, maxIndex
+	return hashBuckets
 }
