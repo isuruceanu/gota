@@ -494,6 +494,54 @@ func TestDataFrame_Records(t *testing.T) {
 	}
 }
 
+func TestDataFrame_Reshape(t *testing.T) {
+	init := []DataFrame{
+		LoadRecords(
+			[][]string{
+				{"G", "Qu1", "Values"},
+				{"M", "Q1", "10.0"},
+				{"M", "Q2", "11.0"},
+				{"M", "Q3", "12.0"},
+				{"F", "Q1", "110.0"},
+				{"F", "Q2", "111.0"},
+				{"F", "Q3", "112.0"},
+			}),
+		LoadRecords(
+			[][]string{
+				{"G", "Qu1", "Values"},
+				{"M", "Q2", "11.0"},
+				{"M", "Q3", "12.0"},
+				{"F", "Q1", "110.0"},
+				{"F", "Q2", "111.0"},
+			}),
+	}
+
+	expected := []DataFrame{
+		LoadRecords(
+			[][]string{
+				{"G", "Q1", "Q2", "Q3"},
+				{"F", "110.0", "111.0", "112.0"},
+				{"M", "10.0", "11.0", "12.0"},
+			}),
+		LoadRecords(
+			[][]string{
+				{"G", "Q1", "Q2", "Q3"},
+				{"F", "110.0", "111.0", "0.0"},
+				{"M", "0.0", "11.0", "12.0"},
+			}),
+	}
+
+	for i, df := range init {
+		res := df.Reshape("G", "Qu1", "Values", 0.0)
+		exp := expected[i]
+
+		if !reflect.DeepEqual(exp.Records(), res.Records()) {
+			t.Errorf("Different values:\nA:%v\nB:%v", exp.Records(), res.Records())
+		}
+	}
+
+}
+
 func TestDataFrame_Mutate(t *testing.T) {
 	a := New(
 		series.New([]string{"b", "a", "b", "c", "d"}, series.String, "COL.1"),

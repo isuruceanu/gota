@@ -361,6 +361,74 @@ func (df DataFrame) RBind(dfb DataFrame) DataFrame {
 	return New(expandedSeries...)
 }
 
+func (df DataFrame) Reshape(id, col, val string, defaultValue interface{}) DataFrame {
+
+	dfw := df.Select([]string{id, col, val})
+	if dfw.Err != nil {
+		return dfw
+	}
+
+	mapKeysList := func(m map[string]int) []string {
+		keys := make([]string, len(m))
+		i := 0
+		for k := range m {
+			keys[i] = k
+			i++
+		}
+		sort.Strings(keys)
+		return keys
+	}
+
+	buildSlice := func(v interface{}, n int) []interface{} {
+		res := make([]interface{}, n)
+		for i := 0; i < n; i++ {
+			res[i] = v
+		}
+		return res
+	}
+
+	idLevels := mapKeysList(dfw.Levels(id))
+	colLevels := mapKeysList(dfw.Levels(col))
+
+	idIndexes := make(map[string]int, len(idLevels))
+
+	for i, l := range idLevels {
+		idIndexes[l] = i
+	}
+
+	result := New(series.New(idLevels, dfw.Col(id).Type(), dfw.Col(id).Name))
+	columns := make(map[string][]interface{}, len(colLevels))
+
+	for _, k := range colLevels {
+		columns[k] = buildSlice(defaultValue, len(idLevels))
+	}
+	i := 0
+	idColIndex := dfw.ColIndex(id)
+	colColIndex := dfw.ColIndex(col)
+	valColIndex := dfw.ColIndex(val)
+	//rIdColindex := result.ColIndex(id)
+
+	for i = 0; i < dfw.nrows; i++ {
+		idVal := dfw.columns[idColIndex].Elem(i)
+		colVal := dfw.columns[colColIndex].Elem(i)
+		valVal := dfw.columns[valColIndex].Elem(i)
+
+		idIdx := idIndexes[idVal.String()]
+		columns[colVal.String()][idIdx] = valVal.Val()
+	}
+	valtype := dfw.Col(val).Type()
+
+	for _, k := range colLevels {
+		result = result.Mutate(series.New(columns[k], valtype, k))
+		if result.Err != nil {
+			return result
+		}
+	}
+
+	return result
+
+}
+
 // Mutate changes a column of the DataFrame with the given Series or adds it as
 // a new column if the column name does not exist.
 func (df DataFrame) Mutate(s series.Series) DataFrame {

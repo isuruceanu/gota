@@ -1,5 +1,7 @@
 module github.com/isuruceanu/gota
 
+go 1.15
+
 require (
 	github.com/araddon/dateparse v0.0.0-20181123171228-21df004e09ca
 	github.com/gonum/blas v0.0.0-20181208220705-f22b278b28ac // indirect
